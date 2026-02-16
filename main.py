@@ -6,8 +6,8 @@ import os
 app = FastAPI()
 
 # These credentials you get for free from Supabase
-URL = "YOUR_SUPABASE_URL"
-KEY = "YOUR_SUPABASE_ANON_KEY"
+URL = "https://dnfpggnwpnoortcpwlrt.supabase.co"
+KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRuZnBnZ253cG5vb3J0Y3B3bHJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNzk2MDUsImV4cCI6MjA4Njc1NTYwNX0.ptNufLKJWiB7wFTI6afq5CsHDD9BXTTRMEiI5knA6Ds"
 supabase: Client = create_client(URL, KEY)
 
 @app.post("/checkin/{job_id}")
