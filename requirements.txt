@@ -1,5 +1,4 @@
-google-generativeai
-google-api-core
+google-genai
 fastapi
 uvicorn
 supabase
