@@ -40,10 +40,10 @@ async def agent_checkin(job_id: str, hotel_qr: str):
 
 @app.post("/checkout/{job_id}")
 async def agent_checkout(job_id: str, data: CheckoutRequest):
-    # Use v1beta and correct the URL to the latest model
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key={GEMINI_KEY}"
+    # Updated to gemini-3-flash-preview for 2026 compatibility
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_KEY}"
     
-    # PAYLOAD FIX: Changed to camelCase for REST compatibility
+    # Payload must use 'contents' and 'generationConfig' (camelCase)
     payload = {
         "contents": [{
             "parts": [{
@@ -59,6 +59,7 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
         try:
             response = await client.post(gemini_url, json=payload, timeout=30.0)
             
+            # If Google returns an error, this will show us exactly why
             if response.status_code != 200:
                 return {
                     "status": "error", 
@@ -66,6 +67,7 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
                 }
 
             result = response.json()
+            # Navigate the Google response object
             ai_text = result['candidates'][0]['content']['parts'][0]['text']
             analysis = json.loads(ai_text)
             
