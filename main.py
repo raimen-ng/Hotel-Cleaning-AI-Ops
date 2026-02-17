@@ -20,23 +20,49 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 class CheckoutRequest(BaseModel):
     notes: str
     photo_url: Optional[str] = None
-
-@app.get("/")
-async def root():
-    return {"status": "online", "method": "REST API (No SDK)"}
-
 @app.post("/checkin/{job_id}")
 async def agent_checkin(job_id: str, hotel_qr: str):
-    # (Existing check-in logic remains the same)
-    response = supabase.table("cleaning_jobs").select("*, hotels(qr_code_secret)").eq("id", job_id).single().execute()
-    if not response.data or response.data['hotels']['qr_code_secret'] != hotel_qr:
+    # 1. Fetch job, base_pay, and the correct QR secret
+    response = supabase.table("cleaning_jobs") \
+        .select("*, hotels(qr_code_secret)") \
+        .eq("id", job_id) \
+        .single() \
+        .execute()
+    
+    job_data = response.data
+    if not job_data or job_data['hotels']['qr_code_secret'] != hotel_qr:
         raise HTTPException(status_code=403, detail="Invalid QR or Job")
+
+    # 2. Calculate Punctuality
+    check_in_time = datetime.now(timezone.utc)
+    # Parse scheduled time (handles ISO format from Supabase)
+    scheduled_time = datetime.fromisoformat(job_data['scheduled_start'].replace('Z', '+00:00'))
+    
+    delay_minutes = (check_in_time - scheduled_time).total_seconds() / 60
+    base_pay = float(job_data['base_pay'])
+    final_payout = base_pay
+
+    # Penalty Logic: 10% for >10 mins, 25% for >20 mins
+    if delay_minutes > 20:
+        final_payout = base_pay * 0.75
+    elif delay_minutes > 10:
+        final_payout = base_pay * 0.90
+    
+    # 3. Update Database with the calculated payout
+    status = "on-site" if delay_minutes <= 3 else "LATE"
     
     supabase.table("cleaning_jobs").update({
-        "check_in_time": datetime.now(timezone.utc).isoformat(),
-        "status": "on-site"
+        "check_in_time": check_in_time.isoformat(),
+        "final_payout": final_payout, # This was missing!
+        "status": status
     }).eq("id", job_id).execute()
-    return {"message": "Checked in"}
+
+    return {
+        "message": "Checked in", 
+        "status": status, 
+        "calculated_payout": final_payout,
+        "delay": f"{round(delay_minutes, 1)} minutes"
+    }
 
 @app.post("/checkout/{job_id}")
 async def agent_checkout(job_id: str, data: CheckoutRequest):
