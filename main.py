@@ -40,8 +40,8 @@ async def agent_checkin(job_id: str, hotel_qr: str):
 
 @app.post("/checkout/{job_id}")
 async def agent_checkout(job_id: str, data: CheckoutRequest):
-    # Use v1beta for better JSON schema support
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    # Updated to stable v1 and gemini-3-flash
+    gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3-flash:generateContent?key={GEMINI_KEY}"
     
     prompt = {
         "contents": [{
@@ -53,7 +53,7 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
             "response_mime_type": "application/json",
         }
     }
-
+    
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(gemini_url, json=prompt, timeout=30.0)
