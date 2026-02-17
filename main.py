@@ -40,25 +40,25 @@ async def agent_checkin(job_id: str, hotel_qr: str):
 
 @app.post("/checkout/{job_id}")
 async def agent_checkout(job_id: str, data: CheckoutRequest):
-    # Updated to stable v1 and gemini-3-flash
-    gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3-flash:generateContent?key={GEMINI_KEY}"
+    # Use v1beta and correct the URL to the latest model
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key={GEMINI_KEY}"
     
-    prompt = {
+    # PAYLOAD FIX: Changed to camelCase for REST compatibility
+    payload = {
         "contents": [{
             "parts": [{
                 "text": f"Analyze cleaning report: '{data.notes}'. Return JSON with keys: 'score' (0-100), 'summary' (1 sentence), 'maintenance_needed' (boolean)."
             }]
         }],
         "generationConfig": {
-            "response_mime_type": "application/json",
+            "responseMimeType": "application/json",
         }
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(gemini_url, json=prompt, timeout=30.0)
+            response = await client.post(gemini_url, json=payload, timeout=30.0)
             
-            # If Google returns an error (like 401 or 403), we want to see it!
             if response.status_code != 200:
                 return {
                     "status": "error", 
@@ -66,15 +66,13 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
                 }
 
             result = response.json()
-            # Extract the text from the response structure
             ai_text = result['candidates'][0]['content']['parts'][0]['text']
             analysis = json.loads(ai_text)
             
         except Exception as e:
-            # This captures local errors like JSON parsing or connection timeouts
             raise HTTPException(status_code=500, detail=f"Internal logic error: {str(e)}")
 
-    # Update Supabase
+    # 2. Update Supabase
     update_data = {
         "status": "completed",
         "check_out_time": datetime.now(timezone.utc).isoformat(),
@@ -85,4 +83,3 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
     supabase.table("cleaning_jobs").update(update_data).eq("id", job_id).execute()
 
     return {"status": "success", "analysis": analysis}
-    
