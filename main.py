@@ -1,3 +1,4 @@
+import google.generativeai as genai
 import os
 import json
 from datetime import datetime, timezone
@@ -6,7 +7,6 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
-import google.generativeai as genai
 
 app = FastAPI()
 
