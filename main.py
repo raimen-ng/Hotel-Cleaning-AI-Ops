@@ -57,6 +57,29 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
         "status": "Success",
         "ai_analysis": analysis
     }
+    Report: "{data.notes}"
+    
+    Return the response strictly as a JSON object with keys: "score" and "summary".
+    """
+
+    response = model.generate_content(prompt)
+    
+    # Clean the response text (Gemini sometimes adds markdown backticks)
+    json_text = response.text.replace('```json', '').replace('```', '').strip()
+    analysis = json.loads(json_text)
+
+    # 3. Update Supabase
+    update = supabase.table("cleaning_jobs").update({
+        "status": "completed",
+        "check_out_time": datetime.now(timezone.utc).isoformat(),
+        "ai_performance_score": analysis['score'],
+        "summary_report": analysis['summary']
+    }).eq("id", job_id).execute()
+
+    return {
+        "status": "Success",
+        "ai_analysis": analysis
+    }
     update = supabase.table("cleaning_jobs").update({
         "status": "completed",
         "check_out_time": check_out_time.isoformat(),
