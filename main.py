@@ -40,48 +40,47 @@ async def agent_checkin(job_id: str, hotel_qr: str):
 
 @app.post("/checkout/{job_id}")
 async def agent_checkout(job_id: str, data: CheckoutRequest):
-    # Updated to gemini-3-flash-preview for 2026 compatibility
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_KEY}"
+    # 1. Fetch the EXISTING job data to get the final_payout from check-in
+    job_response = supabase.table("cleaning_jobs").select("final_payout").eq("id", job_id).single().execute()
     
-    # Payload must use 'contents' and 'generationConfig' (camelCase)
+    if not job_response.data:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    
+    current_payout = job_response.data.get('final_payout')
+
+    # 2. Call Gemini AI (Existing REST Logic)
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_KEY}"
     payload = {
-        "contents": [{
-            "parts": [{
-                "text": f"Analyze cleaning report: '{data.notes}'. Return JSON with keys: 'score' (0-100), 'summary' (1 sentence), 'maintenance_needed' (boolean)."
-            }]
-        }],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-        }
+        "contents": [{"parts": [{"text": f"Analyze: '{data.notes}'. Return JSON: score(0-100), summary(1 sentence), maintenance_needed(bool)."}]}],
+        "generationConfig": {"responseMimeType": "application/json"}
     }
 
     async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(gemini_url, json=payload, timeout=30.0)
-            
-            # If Google returns an error, this will show us exactly why
-            if response.status_code != 200:
-                return {
-                    "status": "error", 
-                    "debug_info": f"Google API returned {response.status_code}: {response.text}"
-                }
+        # ... (Keep your existing httpx try/except block here) ...
+        response = await client.post(gemini_url, json=payload, timeout=30.0)
+        result = response.json()
+        ai_text = result['candidates'][0]['content']['parts'][0]['text']
+        analysis = json.loads(ai_text)
 
-            result = response.json()
-            # Navigate the Google response object
-            ai_text = result['candidates'][0]['content']['parts'][0]['text']
-            analysis = json.loads(ai_text)
-            
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Internal logic error: {str(e)}")
-
-    # 2. Update Supabase
+    # Add a $5 bonus for scores above 90
+    if analysis.get('score', 0) >= 90:
+        current_payout = float(current_payout) + 5.0
+        analysis['summary'] += " (Bonus Awarded!)"
+    
+    # 3. Update Supabase - INCLUDE final_payout to be safe
     update_data = {
         "status": "completed",
         "check_out_time": datetime.now(timezone.utc).isoformat(),
         "ai_performance_score": analysis.get('score'),
         "summary_report": analysis.get('summary'),
-        "needs_maintenance": analysis.get('maintenance_needed')
+        "needs_maintenance": analysis.get('maintenance_needed'),
+        "final_payout": current_payout  # Ensuring we don't lose the value!
     }
+    
     supabase.table("cleaning_jobs").update(update_data).eq("id", job_id).execute()
 
-    return {"status": "success", "analysis": analysis}
+    return {
+        "status": "success", 
+        "analysis": analysis,
+        "payout_verified": current_payout
+    }
