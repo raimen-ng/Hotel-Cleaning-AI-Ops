@@ -17,11 +17,50 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+class AgentSignup(BaseModel):
+    full_name: str
+    phone_number: str
+
+@app.post("/agents/register")
+async def register_agent(agent: AgentSignup):
+    """Creates a new agent profile."""
+    response = supabase.table("agents").insert({
+        "full_name": agent.full_name,
+        "phone_number": agent.phone_number
+    }).execute()
+    return {"message": "Agent registered", "agent": response.data[0]}
+
+@app.post("/jobs/{job_id}/claim")
+async def claim_job(job_id: str, agent_id: str):
+    """Assigns an agent to a specific cleaning job."""
+    # 1. Check if job is already taken
+    job = supabase.table("cleaning_jobs").select("agent_id, status").eq("id", job_id).single().execute()
+    
+    if job.data.get('agent_id'):
+        raise HTTPException(status_code=400, detail="Job already claimed by another agent.")
+
+    # 2. Assign the agent
+    supabase.table("cleaning_jobs").update({
+        "agent_id": agent_id,
+        "status": "assigned"
+    }).eq("id", job_id).execute()
+
+    return {"message": "Job successfully claimed"}
+    
+
 class CheckoutRequest(BaseModel):
     notes: str
     photo_url: Optional[str] = None
+
+
 @app.post("/checkin/{job_id}")
-async def agent_checkin(job_id: str, hotel_qr: str):
+async def agent_checkin(job_id: str, hotel_qr: str, agent_id: str): # Add agent_id here
+    response = supabase.table("cleaning_jobs").select("*, hotels(qr_code_secret)").eq("id", job_id).single().execute()
+    
+    # NEW SECURITY CHECK:
+    if response.data.get('agent_id') != agent_id:
+        raise HTTPException(status_code=403, detail="You are not assigned to this job.")
+    
     # 1. Fetch job, base_pay, and the correct QR secret
     response = supabase.table("cleaning_jobs") \
         .select("*, hotels(qr_code_secret)") \
@@ -110,3 +149,48 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
         "analysis": analysis,
         "payout_verified": current_payout
     }
+
+
+@app.get("/manager/summary")
+async def get_manager_summary():
+    # Get today's date in ISO format (YYYY-MM-DD)
+    today = datetime.now(timezone.utc).date().isoformat()
+    
+    # Query Supabase for maintenance flags or low scores from today
+    # We use .or_ to catch either maintenance issues OR poor performance
+    response = supabase.table("cleaning_jobs") \
+        .select("id, status, ai_performance_score, summary_report, needs_maintenance, hotels(name)") \
+        .eq("status", "completed") \
+        .gte("check_out_time", today) \
+        .or_(f"needs_maintenance.eq.true,ai_performance_score.lt.70") \
+        .execute()
+    
+    return {
+        "date": today,
+        "count": len(response.data),
+        "issues_found": response.data
+    }
+
+
+@app.get("/agent/earnings/{agent_id}")
+async def get_daily_earnings(agent_id: str):
+    today = datetime.now(timezone.utc).date().isoformat()
+    
+    # Fetch all completed jobs for this agent today
+    response = supabase.table("cleaning_jobs") \
+        .select("final_payout, ai_performance_score, hotels(name)") \
+        .eq("agent_id", agent_id) \
+        .eq("status", "completed") \
+        .gte("check_out_time", today) \
+        .execute()
+    
+    total_earned = sum(float(job['final_payout']) for job in response.data) if response.data else 0
+    
+    return {
+        "agent_id": agent_id,
+        "date": today,
+        "total_jobs": len(response.data),
+        "total_earnings": round(total_earned, 2),
+        "job_details": response.data
+    }
+    
