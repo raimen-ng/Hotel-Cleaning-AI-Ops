@@ -87,5 +87,34 @@ async def agent_checkout(job_id: str, data: CheckoutRequest):
     
     try:
         response = gemini_client.models.generate_content(
-            model
-    
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema={
+                    "type": "object",
+                    "properties": {
+                        "score": {"type": "integer"},
+                        "summary": {"type": "string"},
+                        "maintenance_needed": {"type": "boolean"}
+                    },
+                    "required": ["score", "summary", "maintenance_needed"]
+                }
+            )
+        )
+        analysis = json.loads(response.text)
+    except Exception as e:
+        analysis = {"score": 70, "summary": f"Review needed: {str(e)}", "maintenance_needed": False}
+
+    # 2. Update Supabase
+    update_data = {
+        "status": "completed",
+        "check_out_time": datetime.now(timezone.utc).isoformat(),
+        "ai_performance_score": analysis.get('score'),
+        "summary_report": analysis.get('summary'),
+        "needs_maintenance": analysis.get('maintenance_needed')
+    }
+
+    supabase.table("cleaning_jobs").update(update_data).eq("id", job_id).execute()
+
+    return {"status": "success", "ai_analysis": analysis}
